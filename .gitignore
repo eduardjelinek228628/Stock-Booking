@@ -1,0 +1,4 @@
+data/
+screenshots/
+node_modules/
+*.xlsx

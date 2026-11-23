@@ -1,0 +1,10 @@
+{
+  "name": "probe-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Web viewer over NenoVision's Stock and Booking / Probe Lifetime workbooks (static, Microsoft Graph)",
+  "scripts": {
+    "test": "node tests/store_actions.test.js && node tests/graph_adapter.test.js",
+    "serve": "python3 -m http.server 8080"
+  }
+}
