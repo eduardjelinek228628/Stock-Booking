@@ -3,7 +3,7 @@
   'use strict';
   const PV = window.PV;
   const esc = PV.esc;
-  const NOT_IMPORTABLE = new Set(['id', 'status', 'bookedFor', 'bookingDate', 'project', 'owner', 'department', 'history']);
+  const NOT_IMPORTABLE = new Set(['id', 'status', 'bookedFor', 'bookingDate', 'project', 'owner', 'department', 'box', 'mech', 'ele', 'mag', 'state', 'asOf', 'history']);
 
   function parseDelimited(text) {
     text = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');

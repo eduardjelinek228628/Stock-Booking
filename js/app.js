@@ -17,7 +17,7 @@
     state: {
       tab: 'stock',
       stock: { family: null, filters: {}, sort: {}, showLife: true, q: '' },
-      overview: { family: '', months: 12 },
+      overview: { types: [], period: 12, open: {} },
       import: { mapping: {}, overwrite: false },
       phone: { tab: 'mine', filter: 'all', q: '', open: null, confirm: null },
     },
@@ -33,14 +33,14 @@
       if (TABS.some((t) => t[0] === h)) this.state.tab = h;
       if (this.narrow.matches) this.state.tab = 'phone';
       this.narrow.addEventListener('change', () => this.render());
-      this.shell('<div class="loading"><div class="spinner"></div><div>Loading workbooks…</div></div>');
+      this.shell('<div class="loading"><div class="spinner"></div><div>Loading Stock and Booking…</div></div>');
       try {
         if (this.mode() === 'live') {
           this.auth = new PV.Auth(cfg);
           const account = await this.auth.init();
           if (!account) return this.signInScreen();
           const user = PV.makeUser(cfg, account.username, account.name);
-          const source = new PV.GraphSource({ getToken: () => this.auth.getToken(), workbooks: cfg.workbooks });
+          const source = new PV.GraphSource({ getToken: () => this.auth.getToken(), workbook: cfg.workbook });
           this.store = new PV.Store(cfg, source, user);
         } else {
           const idx = Math.min(DEMO_PERSONAS.length - 1, +(PV.storage.get('probeViewer.demo.persona') || 0));
@@ -58,7 +58,7 @@
     signInScreen() {
       this.shell('<div class="card" style="max-width:460px;margin:60px auto;text-align:center"><div class="card-b" style="display:grid;gap:14px;padding:32px">' +
         '<div class="brand" style="justify-content:center;font-size:20px"><span class="brand-mark">PV</span>' + esc(cfg.appName) + '</div>' +
-        '<p class="muted">Sign in with your NenoVision Microsoft 365 account. The viewer reads ' + esc(cfg.workbooks.stock.label) + ' and ' + esc(cfg.workbooks.lifetime.label) + ' directly from SharePoint; nothing is stored on this page.</p>' +
+        '<p class="muted">Sign in with your NenoVision Microsoft 365 account. The viewer works directly in ' + esc(cfg.workbook.label) + ' on SharePoint; nothing is stored on this page.</p>' +
         '<button class="btn primary" id="signin" style="justify-self:center;height:40px">Sign in with Microsoft</button><a class="small" href="?mode=demo">Open the demo instead</a></div></div>');
       document.getElementById('signin').onclick = () => this.auth.signIn();
     },
@@ -71,7 +71,7 @@
 
     async refresh() {
       PV.ui.closeOverlays();
-      try { await this.store.load(); this.render(); PV.ui.toast('Reloaded from ' + (this.store.mode === 'demo' ? 'demo workbooks' : 'SharePoint') + '.'); }
+      try { await this.store.load(); this.render(); PV.ui.toast('Reloaded from ' + (this.store.mode === 'demo' ? 'the demo workbook' : 'SharePoint') + '.'); }
       catch (e) { PV.ui.toast('Reload failed: ' + e.message, true); }
     },
 
@@ -91,11 +91,11 @@
         '<nav class="tabs" role="tablist">' + TABS.filter((t) => !narrow || ['phone', 'overview', 'checks'].includes(t[0])).map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (tab === k) + '">' + (narrow && k === 'checks' ? 'Checks' : l) + '</button>').join('') + '</nav>' +
         '<span class="spacer"></span><div class="userbox">' + (narrow ? '' : persona) +
         '<button class="btn subtle" id="reload" title="Reload from ' + (store.mode === 'demo' ? 'demo data' : 'SharePoint') + (store.loadedAt ? ' (loaded ' + store.loadedAt.toLocaleTimeString() + ')' : '') + '">⟳</button><span class="avatar" title="' + esc(u.name) + '">' + esc(u.initials) + '</span></div></header>';
-      const errors = store.warnings.filter((w) => w.level === 'error').length + store.families.reduce((a, f) => a + [f.stock, f.life].filter(Boolean).reduce((b, m) => b + m.warnings.filter((w) => w.level === 'error').length, 0), 0);
+      const errors = store.warnings.filter((w) => w.level === 'error').length + store.families.reduce((a, f) => a + (f.stock ? f.stock.warnings.filter((w) => w.level === 'error').length : 0), 0);
       document.getElementById('banner').innerHTML =
         (store.mode === 'live' && !store.writesAllowed ? '<div class="banner info">Read-only: live data from SharePoint. Booking and updates are switched off until the Excel changes are agreed (config: liveWritesEnabled).</div>' : '') +
-        (store.mode === 'demo' && !narrow ? '<div class="banner info">Demo mode – synthetic sample data in the same structure as the real workbooks. Changes stay in this browser; “Reset demo” restores the sample.</div>' : '') +
-        (errors ? '<div class="banner">' + errors + ' problem(s) reading the workbooks – see <a href="#checks" data-go="checks">Data checks</a>.</div>' : '');
+        (store.mode === 'demo' && !narrow ? '<div class="banner info">Demo mode – synthetic sample data in the same structure as Stock and Booking. Changes stay in this browser; “Reset demo” restores the sample.</div>' : '') +
+        (errors ? '<div class="banner">' + errors + ' problem(s) reading Stock and Booking – see <a href="#checks" data-go="checks">Data checks</a>.</div>' : '');
       const main = document.getElementById('main');
       main.className = narrow && tab === 'phone' ? 'phone-only' : '';
       if (tab === 'phone') PV.views.phone(main, this, !narrow);

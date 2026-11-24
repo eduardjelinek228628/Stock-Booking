@@ -1,4 +1,4 @@
-/* Probe Viewer – live data source: Microsoft Graph Excel API (delegated, signed-in user). */
+/* Probe Viewer – live data source: Microsoft Graph Excel API (delegated, signed-in user), one workbook. */
 (function () {
   'use strict';
   const PV = window.PV || (window.PV = {});
@@ -15,19 +15,16 @@
     constructor(status, code, message, path) { super(message); this.status = status; this.code = code; this.path = path; }
   }
 
-  /**
-   * opts: { getToken: async () => accessToken, workbooks: config.workbooks, fetchImpl?, baseUrl?, sleep? }
-   */
+  /** opts: { getToken: async () => accessToken, workbook: config.workbook, fetchImpl?, baseUrl?, sleep? } */
   class GraphSource {
     constructor(opts) {
       this.kind = 'live';
       this.getToken = opts.getToken;
-      this.workbooks = opts.workbooks;
+      this.workbook = opts.workbook;
       this.fetch = opts.fetchImpl || window.fetch.bind(window);
       this.base = opts.baseUrl || 'https://graph.microsoft.com/v1.0';
       this.sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
-      this.items = {}; // wbKey -> '/drives/{d}/items/{i}'
-      this.sheets = {}; // wbKey -> [{id,name}]
+      this.item = null; // '/drives/{d}/items/{i}'
     }
 
     async request(method, path, body, headers) {
@@ -49,74 +46,83 @@
         try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
         if (!res.ok) {
           const err = (json && json.error) || {};
-          throw new GraphError(res.status, err.code || 'http' + res.status, err.message || ('HTTP ' + res.status), path);
+          let msg = err.message || ('HTTP ' + res.status);
+          if (res.status === 403 || res.status === 401) msg += ' – check that the app has access to this file (admin grant) and that you can open it in Excel.';
+          throw new GraphError(res.status, err.code || 'http' + res.status, msg, path);
         }
         return json;
       }
     }
 
-    async itemPath(wbKey) {
-      if (this.items[wbKey]) return this.items[wbKey];
-      const wb = this.workbooks[wbKey];
-      if (!wb) throw new Error('Workbook "' + wbKey + '" is not configured.');
+    async itemPath() {
+      if (this.item) return this.item;
+      const wb = this.workbook;
       let driveId = wb.driveId, itemId = wb.itemId;
       if (!(driveId && itemId)) {
-        if (!wb.sharingUrl) throw new Error('Set sharingUrl (or driveId + itemId) for "' + wb.label + '" in js/config.js.');
+        if (!wb.sharingUrl) throw new Error('Set workbook.driveId + workbook.itemId (or sharingUrl) in js/config.js.');
         const item = await this.request('GET', '/shares/' + encodeSharingUrl(wb.sharingUrl) + '/driveItem?$select=id,name,parentReference');
         driveId = item.parentReference && item.parentReference.driveId;
         itemId = item.id;
-        if (!driveId || !itemId) throw new Error('Could not resolve the file behind the sharing link of "' + wb.label + '".');
+        if (!driveId || !itemId) throw new Error('Could not resolve the file behind the sharing link.');
       }
-      this.items[wbKey] = '/drives/' + encodeURIComponent(driveId) + '/items/' + encodeURIComponent(itemId);
-      return this.items[wbKey];
+      this.item = '/drives/' + encodeURIComponent(driveId) + '/items/' + encodeURIComponent(itemId) + '/workbook';
+      return this.item;
     }
+    sh(session) { return session ? { 'workbook-session-id': session } : undefined; }
+    static pickRange(r) { return { address: r.address, values: r.values, text: r.text, numberFormat: r.numberFormat, formulas: r.formulas }; }
+    ws(sheetId) { return '/worksheets/' + encodeURIComponent(sheetId); }
 
-    sessionHeaders(session) { return session ? { 'workbook-session-id': session } : undefined; }
-
-    async listWorksheets(wbKey) {
-      const p = await this.itemPath(wbKey);
-      const r = await this.request('GET', p + '/workbook/worksheets?$select=id,name,visibility');
-      this.sheets[wbKey] = r.value.map((w) => ({ id: w.id, name: w.name, visibility: w.visibility }));
-      return this.sheets[wbKey];
+    async listWorksheets() {
+      const p = await this.itemPath();
+      const r = await this.request('GET', p + '/worksheets?$select=id,name,visibility');
+      return r.value.map((w) => ({ id: w.id, name: w.name, visibility: w.visibility }));
     }
-    async listTables(wbKey, sheetId) {
-      const p = await this.itemPath(wbKey);
-      const r = await this.request('GET', p + '/workbook/worksheets/' + encodeURIComponent(sheetId) + '/tables?$select=id,name');
+    async listTables(sheetId) {
+      const p = await this.itemPath();
+      const r = await this.request('GET', p + this.ws(sheetId) + '/tables?$select=id,name');
       return r.value.map((t) => ({ name: t.name, id: t.id }));
     }
-    static pickRange(r) {
-      return { address: r.address, values: r.values, text: r.text, numberFormat: r.numberFormat, formulas: r.formulas };
+    // One request returns header + body with values, text, numberFormat and formulas.
+    async getTableRange(tableName) { const p = await this.itemPath(); return GraphSource.pickRange(await this.request('GET', p + '/tables/' + encodeURIComponent(tableName) + '/range')); }
+    async getUsedRange(sheetId) { const p = await this.itemPath(); return GraphSource.pickRange(await this.request('GET', p + this.ws(sheetId) + '/usedRange')); }
+    async getRange(sheetId, address, session) {
+      const p = await this.itemPath();
+      return GraphSource.pickRange(await this.request('GET', p + this.ws(sheetId) + "/range(address='" + address + "')", undefined, this.sh(session)));
     }
-    async getTableRange(wbKey, tableName) {
-      const p = await this.itemPath(wbKey);
-      // one request returns header + body with values, text, numberFormat and formulas
-      return GraphSource.pickRange(await this.request('GET', p + '/workbook/tables/' + encodeURIComponent(tableName) + '/range'));
-    }
-    async getUsedRange(wbKey, sheetId) {
-      const p = await this.itemPath(wbKey);
-      return GraphSource.pickRange(await this.request('GET', p + '/workbook/worksheets/' + encodeURIComponent(sheetId) + '/usedRange'));
-    }
-    async getRange(wbKey, sheetId, address, session) {
-      const p = await this.itemPath(wbKey);
-      return GraphSource.pickRange(await this.request('GET', p + '/workbook/worksheets/' + encodeURIComponent(sheetId) + "/range(address='" + address + "')", undefined, this.sessionHeaders(session)));
-    }
-    async beginSession(wbKey) {
-      const p = await this.itemPath(wbKey);
-      const r = await this.request('POST', p + '/workbook/createSession', { persistChanges: true });
-      return r.id;
-    }
-    async endSession(wbKey, session) {
+    async beginSession() { const p = await this.itemPath(); return (await this.request('POST', p + '/createSession', { persistChanges: true })).id; }
+    async endSession(session) {
       if (!session) return;
-      const p = await this.itemPath(wbKey);
-      try { await this.request('POST', p + '/workbook/closeSession', {}, this.sessionHeaders(session)); } catch (e) { /* session expires anyway */ }
+      const p = await this.itemPath();
+      try { await this.request('POST', p + '/closeSession', {}, this.sh(session)); } catch (e) { /* session expires anyway */ }
     }
-    async writeRange(wbKey, sheetId, address, values, session) {
-      const p = await this.itemPath(wbKey);
-      return this.request('PATCH', p + '/workbook/worksheets/' + encodeURIComponent(sheetId) + "/range(address='" + address + "')", { values }, this.sessionHeaders(session));
+    async writeRange(sheetId, address, values, session) {
+      const p = await this.itemPath();
+      return this.request('PATCH', p + this.ws(sheetId) + "/range(address='" + address + "')", { values }, this.sh(session));
     }
-    async addTableRow(wbKey, tableName, values, session) {
-      const p = await this.itemPath(wbKey);
-      return this.request('POST', p + '/workbook/tables/' + encodeURIComponent(tableName) + '/rows/add', { index: null, values: [values] }, this.sessionHeaders(session));
+    async addTableRows(tableName, rows, session) {
+      const p = await this.itemPath();
+      return this.request('POST', p + '/tables/' + encodeURIComponent(tableName) + '/rows/add', { index: null, values: rows }, this.sh(session));
+    }
+    // ---- structure changes (one-time column setup) ----
+    /** Excel's "insert table column": index = position of the new column (0-based); existing columns from there shift right. */
+    async addTableColumn(tableName, index, name, session) {
+      const p = await this.itemPath();
+      return this.request('POST', p + '/tables/' + encodeURIComponent(tableName) + '/columns/add', { index, name }, this.sh(session));
+    }
+    async addWorksheet(name, session) {
+      const p = await this.itemPath();
+      const r = await this.request('POST', p + '/worksheets/add', { name }, this.sh(session));
+      return { id: r.id, name: r.name };
+    }
+    async addTable(sheetName, address, session) {
+      const p = await this.itemPath();
+      const q = /^[A-Za-z0-9_]+$/.test(sheetName) ? sheetName : "'" + sheetName.replace(/'/g, "''") + "'";
+      const r = await this.request('POST', p + '/tables/add', { address: q + '!' + address, hasHeaders: true }, this.sh(session));
+      return { name: r.name, id: r.id };
+    }
+    async renameTable(oldName, newName, session) {
+      const p = await this.itemPath();
+      return this.request('PATCH', p + '/tables/' + encodeURIComponent(oldName), { name: newName }, this.sh(session));
     }
   }
 

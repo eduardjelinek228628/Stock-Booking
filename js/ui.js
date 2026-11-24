@@ -18,11 +18,12 @@
     toast(msg, isErr, ms) {
       let host = document.querySelector('.toast-host');
       if (!host) { host = document.createElement('div'); host.className = 'toast-host'; host.setAttribute('role', 'status'); document.body.appendChild(host); }
+      while (host.children.length >= 2) host.firstChild.remove(); // never more than two at a time
       const t = document.createElement('div');
       t.className = 'toast' + (isErr ? ' err' : '');
       t.textContent = msg;
       host.appendChild(t);
-      setTimeout(() => t.remove(), ms || (isErr ? 7000 : 3500));
+      setTimeout(() => t.remove(), ms || (isErr ? 7000 : 3000));
     },
     closeOverlays() { document.querySelectorAll('.scrim, .drawer, .modal, .filter-pop').forEach((n) => n.remove()); },
     drawer(title, bodyHtml, footHtml, onMount) {
@@ -62,8 +63,7 @@
     async runAction(fn, okMsg) {
       try {
         const r = await fn();
-        if (r && r.lifetime === false) PV.ui.toast('Stock and Booking updated, but Probe Lifetime failed: ' + r.lifetimeError + ' – please add it by hand.', true, 12000);
-        else PV.ui.toast(okMsg + (r && r.notes && r.notes.length ? ' ' + r.notes.join(' ') : '') + (r && r.logged === false ? ' (not logged)' : ''));
+        PV.ui.toast(okMsg + (r && r.notes && r.notes.length ? ' ' + r.notes.join(' ') : '') + (r && r.logged === false ? ' (not logged)' : ''));
         return r || true;
       } catch (e) {
         if (e.isConflict) {

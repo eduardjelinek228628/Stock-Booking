@@ -1,28 +1,32 @@
-// Runs the parser/store over the REAL workbooks (exported locally with tools/export_json.py) and prints what the viewer would see.
-// Usage: python3 tools/export_json.py StockBooking.xlsx data/stock.json && python3 tools/export_json.py ProbeLifetime.xlsx data/lifetime.json
-//        node tests/real_structure.test.js     (data/ is git-ignored – never commit real data)
+// Runs the parser/store over the REAL Stock and Booking (exported locally with tools/export_json.py) and prints what the viewer would see,
+// including where "Add missing columns" would insert the new columns.
+// Usage: python3 tools/export_json.py "Stock and Booking.xlsx" data/stock.json && node tests/real_structure.test.js
+// (data/ is git-ignored – never commit real data)
 const { load, JsonSource, FILES } = require('./harness');
-const fs = require('fs');
+const fs = require('fs'), path = require('path');
 const w = load(FILES);
-const books = { stock: JSON.parse(fs.readFileSync(require('path').join(__dirname,'..','data','stock.json'))), lifetime: JSON.parse(fs.readFileSync(require('path').join(__dirname,'..','data','lifetime.json'))) };
+const PV = w.PV;
+const book = JSON.parse(fs.readFileSync(process.argv[2] || path.join(__dirname, '..', 'data', 'stock.json')));
 (async () => {
-  const st = new w.PV.Store(w.PV_CONFIG, new JsonSource(books), { initials: 'EJ', name: 'Eduard', roles: [] });
+  const st = new PV.Store(w.PV_CONFIG, new JsonSource(book), { initials: 'EJ', name: 'Eduard', roles: ['operations'] });
   await st.load();
   console.log('store warnings:'); st.warnings.forEach((x) => console.log('  ', x.level, x.where, '-', x.msg));
   for (const f of st.families) {
     const cnt = {};
-    f.probes.forEach((p) => { const k = w.PV.statusKey(p) || '(blank)'; cnt[k] = (cnt[k] || 0) + 1; });
-    const joined = f.probes.filter((p) => p.stock && p.life).length;
-    const sm = f.stock, lm = f.life;
-    console.log(`\n## ${f.cfg.key}: probes=${f.probes.length} joined=${joined} status=${JSON.stringify(cnt)}`);
-    if (sm) console.log('  stock roles', JSON.stringify(sm.roles), 'units', JSON.stringify(sm.units.filter(Boolean)));
-    if (lm) console.log('  life roles ', JSON.stringify(lm.roles));
-    for (const m of [sm, lm]) if (m) m.warnings.forEach((x) => console.log('   ', x.level, x.where, '-', x.msg));
+    f.probes.forEach((p) => { const k = PV.statusKey(p) || '(blank)'; cnt[k] = (cnt[k] || 0) + 1; });
+    console.log(`\n## ${f.cfg.key}: probes=${f.probes.length} status=${JSON.stringify(cnt)}`);
+    if (!f.stock) continue;
+    console.log('  roles', JSON.stringify(f.stock.roles));
+    f.stock.warnings.forEach((x) => console.log('   ', x.level, '-', x.msg));
   }
-  console.log('\nlists:', Object.keys(st.lists).join(' | '));
-  console.log('status list', st.list('status'), 'mech', st.list('mech'), 'akiyama state', st.list('state', w.PV_CONFIG.families.find(f=>f.key==='Akiyama')));
-  const ej = st.probes.filter((p) => w.PV.currentOwner(w.PV.ptext(p, 'owner')).toUpperCase() === 'EJ');
-  console.log('EJ owned probes:', ej.length, ej.slice(0, 5).map((p) => p.family.key + ':' + p.id + ' ' + w.PV.ptext(p,'status') + ' mech=' + w.PV.ptext(p,'mech')));
-  const sample = st.family('NPC-X').probes.find((p) => p.stock && p.life);
-  if (sample) console.log('sample join', sample.id, 'asOf', w.PV.ptext(sample, 'asOf'), 'booking', w.PV.ptext(sample, 'bookingDate'), 'freso', w.PV.ptext(sample,'freso'));
+  console.log('\nColumn setup plan:');
+  const plan = st.setupPlan();
+  for (const s of plan.sheets) {
+    const after = s.family.stock.headers.map((h) => PV.clean(h) || '·');
+    s.ops.forEach((o) => after.splice(o.index, 0, '[' + o.header + ']'));
+    console.log(' ', s.family.cfg.key.padEnd(12), after.join(' | '), s.manual.length ? '  MANUAL: ' + s.manual.join(', ') : '');
+  }
+  console.log('  Log sheet to create:', plan.log);
+  const counts = PV.stockCounts(st), ev = PV.bookingEvents(st);
+  console.log('\nin stock:', counts.map((c) => c.family.cfg.key + ' ' + c['in stock']).join(', '), '| booking events with a date:', ev.length);
 })().catch((e) => { console.error(e); process.exit(1); });

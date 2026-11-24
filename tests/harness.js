@@ -11,16 +11,16 @@ function load(files, extra) {
   for (const f of files) vm.runInContext(fs.readFileSync(path.join(APP, f), 'utf8'), ctx, { filename: f });
   return win;
 }
-/** Source over exported JSON (real workbook structure) – same interface as GraphSource. */
+/** Read-only source over an exported workbook (tools/export_json.py) – same interface as GraphSource. */
 class JsonSource {
-  constructor(books) { this.kind = 'demo'; this.books = books; this.writes = []; }
-  sh(k, id) { return this.books[k].sheets.find((s) => s.id === id); }
-  async listWorksheets(k) { return this.books[k].sheets.map((s) => ({ id: s.id, name: s.name })); }
-  async listTables(k, id) { return this.sh(k, id).tables.map((t) => ({ name: t.name })); }
-  async getTableRange(k, name) { for (const s of this.books[k].sheets) { const t = s.tables.find((x) => x.name === name); if (t) return JSON.parse(JSON.stringify(t.range)); } throw new Error('no table ' + name); }
-  async getUsedRange(k, id) { return JSON.parse(JSON.stringify(this.sh(k, id).used)); }
+  constructor(book) { this.kind = 'demo'; this.book = book; }
+  sh(id) { return this.book.sheets.find((s) => s.id === id); }
+  async listWorksheets() { return this.book.sheets.map((s) => ({ id: s.id, name: s.name })); }
+  async listTables(id) { return this.sh(id).tables.map((t) => ({ name: t.name })); }
+  async getTableRange(name) { for (const s of this.book.sheets) { const t = s.tables.find((x) => x.name === name); if (t) return JSON.parse(JSON.stringify(t.range)); } throw new Error('no table ' + name); }
+  async getUsedRange(id) { return JSON.parse(JSON.stringify(this.sh(id).used)); }
   async getRange() { throw new Error('read-only fixture'); }
   async beginSession() { return null; } async endSession() {}
-  async writeRange() { throw new Error('read-only fixture'); } async addTableRow() { throw new Error('read-only fixture'); }
+  async writeRange() { throw new Error('read-only fixture'); } async addTableRows() { throw new Error('read-only fixture'); }
 }
-module.exports = { load, JsonSource, FILES: ['util.js', 'config.js', 'model.js', 'store.js'] };
+module.exports = { load, JsonSource, FILES: ['util.js', 'config.js', 'model.js', 'store.js', 'stats.js'] };

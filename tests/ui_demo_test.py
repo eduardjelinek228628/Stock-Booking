@@ -1,12 +1,14 @@
-"""Clicks through the demo in Chromium (pip install playwright && playwright install chromium)."""
-import asyncio, sys, os, json
+"""Clicks through the demo in Chromium (pip install playwright && playwright install chromium). Saves screenshots/."""
+import asyncio, os, sys
 from playwright.async_api import async_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = 'file://' + os.path.join(HERE, '..', 'index.html')
 OUT = os.path.join(HERE, '..', 'screenshots'); os.makedirs(OUT, exist_ok=True)
+CHROME = os.environ.get('CHROME')  # optional path to a Chrome binary
+
 async def main():
     async with async_playwright() as p:
-        b = await p.chromium.launch(args=['--no-sandbox'])
+        b = await p.chromium.launch(executable_path=CHROME, args=['--no-sandbox']) if CHROME else await p.chromium.launch(args=['--no-sandbox'])
         ctx = await b.new_context(viewport={'width': 1440, 'height': 900})
         page = await ctx.new_page()
         errors = []
@@ -14,111 +16,78 @@ async def main():
         page.on('pageerror', lambda e: errors.append('PAGEERROR ' + str(e)))
         await page.goto(APP)
         await page.wait_for_selector('table.data tbody tr')
-        await page.screenshot(path=f'{OUT}/1_stock.png')
-        n = await page.locator('table.data tbody tr').count(); print('stock rows NPC-A', n)
-        # switch tab to NPC-X, filter Status = in stock
+        # --- stock: two column groups ---
         await page.click('[data-fam="NPC-X"]')
-        await page.click('.th-btn[data-col="s1"]')
-        await page.wait_for_selector('.filter-pop')
-        await page.screenshot(path=f'{OUT}/2_filter.png')
+        groups = await page.locator('thead tr.groups th').all_inner_texts()
+        print('groups:', groups); assert [g.strip().lower() for g in groups] == ['stock and booking', 'usage']
+        usage_cols = await page.locator('thead tr.cols th.usage').all_inner_texts()
+        print('usage columns:', [u.split('\n')[0].strip(' ▾') for u in usage_cols])
+        await page.screenshot(path=f'{OUT}/1_stock.png')
+        # filter Status = in stock
+        await page.click('.th-btn[data-col="c1"]'); await page.wait_for_selector('.filter-pop')
         await page.uncheck('.filter-pop [data-all]')
         labels = page.locator('.filter-pop .vals label')
-        cnt = await labels.count()
-        for i in range(cnt):
-            t = await labels.nth(i).inner_text()
-            if t.startswith('in stock'): await labels.nth(i).locator('input').check()
+        for i in range(await labels.count()):
+            if (await labels.nth(i).inner_text()).startswith('in stock'): await labels.nth(i).locator('input').check()
         await page.click('.filter-pop [data-ok]')
-        rows = await page.locator('table.data tbody tr').count(); print('NPC-X in stock rows', rows)
         st = await page.locator('table.data tbody tr td:nth-child(2)').all_inner_texts()
-        assert all(x.strip()=='in stock' for x in st), st[:5]
-        # numeric filter freso >= 50
-        await page.click('.th-btn[data-col="s3"]'); await page.fill('.filter-pop [data-min]', '50'); await page.click('.filter-pop [data-ok]')
-        fr = await page.locator('table.data tbody tr td:nth-child(4)').all_inner_texts()
-        print('freso>=50 rows', len(fr), fr[:6]); assert all(float(x) >= 50 for x in fr)
-        # open probe & book
-        await page.locator('table.data tbody tr').first.click()
-        await page.wait_for_selector('.drawer')
-        await page.screenshot(path=f'{OUT}/3_drawer.png')
-        pid = (await page.locator('.drawer-h h2').inner_text()).split('·')[-1].strip()
-        await page.click('[data-act="book"]')
-        await page.wait_for_selector('.modal [data-proj]')
-        await page.select_option('.modal [data-proj]', 'Training')
-        await page.screenshot(path=f'{OUT}/4_book.png')
-        await page.click('.modal .btn.primary')
-        await page.wait_for_selector('.toast')
-        print('toast:', await page.locator('.toast').first.inner_text())
-        rows2 = await page.locator('table.data tbody tr').count(); print('in stock rows after booking', rows2); assert rows2 == len(fr) - 1
-        # global search
-        await page.fill('#q', pid)
-        await page.wait_for_selector('#searchRes table')
-        print('search hit:', (await page.locator('#searchRes tr[data-uid]').first.inner_text()).replace('\n',' | '))
-        await page.fill('#q', '')
-        # lifetime-only tab
-        await page.click('[data-fam="Adama"]'); print('Adama rows', await page.locator('table.data tbody tr').count())
-        # overview
-        await page.click('[data-tab="overview"]')
-        await page.wait_for_selector('#chMonthly')
-        await page.wait_for_timeout(300)
-        await page.screenshot(path=f'{OUT}/5_overview.png', full_page=True)
-        # import: paste data
-        await page.click('[data-tab="import"]')
-        # switch to operations persona (importer)
-        await page.select_option('#persona', '1')
-        await page.click('[data-tab="import"]')
-        paste = 'ID\tfreso\tQ factor\tStiffness\nZ003\t31,5\t301\t9.9\nZ004\t28.0\tabc\t\nZ999\t1\t2\t3\nZ003\t1\t1\t1\n'
-        await page.fill('#paste', paste)
-        await page.click('#parsePaste')
-        await page.wait_for_selector('#doImport')
-        await page.screenshot(path=f'{OUT}/6_import_preview.png', full_page=True)
-        print('import summary:', await page.locator('.card-h .small.muted').last.inner_text())
-        await page.check('#ovw')
-        await page.wait_for_selector('#doImport')
-        print('import summary (overwrite):', await page.locator('.card-h .small.muted').last.inner_text())
-        await page.click('#doImport')
-        await page.wait_for_selector('text=value(s) written')
-        print('import result:', (await page.locator('.card .card-b').last.inner_text())[:200])
-        # phone (framed)
-        await page.select_option('#persona', '0')
-        await page.click('[data-tab="phone"]')
-        await page.wait_for_selector('.phone-frame .pitem')
-        await page.screenshot(path=f'{OUT}/7_phone_mine.png')
-        print('my probes:', await page.locator('.phone-frame .pitem').count())
-        await page.locator('.phone-frame .phone > .phone-body .pitem').first.click()
-        await page.wait_for_selector('.sheet [data-save], .sheet .kv')
-        await page.screenshot(path=f'{OUT}/8_phone_detail.png')
-        if await page.locator('.sheet [data-save]').count():
-            seg = page.locator('.sheet .seg[data-role]').first
-            await seg.locator('button[data-v="good"]').click()
-            await page.fill('.sheet [data-note]', 'checked in SEM, tip fine')
-            await page.click('.sheet [data-save]')
-            await page.wait_for_selector('.toast')
-            print('phone save toast:', await page.locator('.toast').last.inner_text())
-            hist = await page.locator('.sheet .history').inner_text()
-            print('history now:', hist.split('\n')[0]); assert 'checked in SEM, tip fine' in hist
+        assert st and all(x.strip() == 'in stock' for x in st); n_in = len(st)
+        # book from drawer
+        await page.locator('table.data tbody tr').first.click(); await page.wait_for_selector('.drawer')
+        await page.screenshot(path=f'{OUT}/2_drawer.png')
+        await page.click('[data-act="book"]'); await page.wait_for_selector('.modal [data-proj]')
+        await page.select_option('.modal [data-proj]', 'Training'); await page.click('.modal .btn.primary')
+        await page.wait_for_selector('.toast'); print('toast:', await page.locator('.toast').first.inner_text())
+        assert await page.locator('table.data tbody tr').count() == n_in - 1
+        # --- overview: compact cards + expand ---
+        await page.click('.topbar [data-tab="overview"]'); await page.wait_for_selector('#chBookings')
+        assert await page.locator('.scard .details').count() == 0, 'cards compact by default'
+        await page.locator('[data-more="NPC-X"]').click(); await page.wait_for_selector('.scard.open .details')
+        print('expanded card:', (await page.locator('.scard.open .details').inner_text()).replace('\n', ' | '))
+        # multi-select types + period
+        await page.click('[data-pick="types"] button[data-v="NPC-X"]'); await page.click('[data-pick="types"] button[data-v="NPC-W"]')
+        await page.click('[data-pick="period"] button[data-v="3"]'); await page.wait_for_selector('#chBookings')
+        sel = await page.locator('[data-pick="types"] button[aria-pressed="true"]').all_inner_texts(); print('types selected:', sel); assert sel == ['NPC-X', 'NPC-W']
+        h = await page.locator('.pair .card-h').first.inner_text(); print('chart header:', h.replace('\n', ' | ')); assert 'week' in h.lower()
+        await page.click('[data-pick="period"] button[data-v="all"]'); await page.wait_for_selector('#chStock')
+        await page.wait_for_timeout(300); await page.screenshot(path=f'{OUT}/3_overview.png', full_page=True)
+        await page.click('[data-pick="types"] button[data-v=""]')
+        # --- phone ---
+        await page.click('.topbar [data-tab="phone"]'); await page.wait_for_selector('.phone-frame .pitem')
+        mine_status = await page.locator('.phone-frame .phone > .phone-body .pitem .chip[class*="st-"]').count()
+        print('my probes:', await page.locator('.phone-frame .phone > .phone-body .pitem').count(), 'status chips in list:', mine_status); assert mine_status == 0
+        print('groups:', await page.locator('.phone-frame .phone > .phone-body .pbox-h span:first-child').all_inner_texts())
+        await page.screenshot(path=f'{OUT}/4_phone_mine.png')
+        await page.locator('.phone-frame .phone > .phone-body .pitem').first.click(); await page.wait_for_selector('.sheet [data-save]')
+        await page.locator('.sheet .seg[data-role]').first.locator('button[data-v="good"]').click()
+        await page.fill('.sheet [data-note]', 'checked in SEM, tip fine'); await page.click('.sheet [data-save]')
+        await page.wait_for_selector('.toast'); hist = await page.locator('.sheet .history').inner_text()
+        print('history:', hist.split('\n')[0]); assert 'checked in SEM, tip fine' in hist
         await page.click('.sheet [data-back]')
-        await page.click('.phone-nav [data-ptab="book"]')
-        await page.select_option('[data-bookfam]', 'Akiyama')
-        await page.locator('.phone > .phone-body .pitem').first.click()
-        await page.wait_for_selector('[data-confirm-book]')
-        await page.locator('.sheet .seg[data-proj] button').nth(1).click()
-        await page.screenshot(path=f'{OUT}/9_phone_book.png')
-        await page.click('[data-confirm-book]')
-        await page.wait_for_selector('.toast')
-        print('phone book toast:', await page.locator('.toast').last.inner_text())
-        # checks
-        await page.click('.topbar [data-tab="checks"]')
-        await page.wait_for_selector('.check')
-        await page.screenshot(path=f'{OUT}/10_checks.png', full_page=True)
-        # narrow (real phone)
+        await page.click('.phone-nav [data-ptab="book"]'); await page.select_option('[data-bookfam]', 'NPC-X')
+        item = page.locator('.phone > .phone-body .pitem').first
+        txt = (await item.inner_text()).replace('\n', ' | '); print('booking list item:', txt); assert 'El.' in txt and 'f ' in txt
+        await page.screenshot(path=f'{OUT}/5_phone_book.png')
+        await item.click(); await page.wait_for_selector('[data-confirm-book]')
+        await page.locator('.sheet .seg[data-proj] button').nth(1).click(); await page.click('[data-confirm-book]')
+        await page.wait_for_selector('.toast'); print('phone booking:', await page.locator('.toast').last.inner_text())
+        # --- data checks: demo without new columns, then setup as operations ---
+        await page.click('.topbar [data-tab="checks"]'); await page.wait_for_selector('.check')
+        await page.click('#demoLegacy'); await page.wait_for_selector('#setup')
+        await page.select_option('#persona', '1'); await page.wait_for_selector('#setup:not([disabled])')
+        await page.click('#setup'); await page.wait_for_selector('.modal .plan')
+        await page.screenshot(path=f'{OUT}/6_setup_preview.png')
+        await page.click('.modal .btn.primary'); await page.wait_for_selector('text=All new columns and the Log are in place')
+        print('setup:', await page.locator('.toast').last.inner_text())
+        await page.screenshot(path=f'{OUT}/7_checks.png', full_page=True)
+        # --- real phone width ---
         m = await b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
         mp = await m.new_page(); mp.on('pageerror', lambda e: errors.append('MOBILE ' + str(e)))
-        await mp.goto(APP); await mp.wait_for_selector('.phone .pitem')
-        await mp.screenshot(path=f'{OUT}/11_mobile.png')
-        print('mobile full phone layout:', await mp.locator('.phone.full').count())
-        # dark mode overview
+        await mp.goto(APP); await mp.wait_for_selector('.phone.full .pitem'); await mp.screenshot(path=f'{OUT}/8_mobile.png')
+        # --- dark OS setting still shows the light design ---
         d = await b.new_context(viewport={'width': 1440, 'height': 900}, color_scheme='dark')
-        dp = await d.new_page(); await dp.goto(APP + '#overview'); await dp.wait_for_selector('#chMonthly'); await dp.wait_for_timeout(300)
-        await dp.screenshot(path=f'{OUT}/12_dark_overview.png')
-        print('ERRORS:', errors)
+        dp = await d.new_page(); await dp.goto(APP + '#overview'); await dp.wait_for_selector('#chBookings')
+        bg = await dp.evaluate("getComputedStyle(document.body).backgroundColor"); print('body background with dark OS setting:', bg); assert bg == 'rgb(246, 247, 249)'
+        print('ERRORS:', errors); assert not errors
         await b.close()
 asyncio.run(main())
