@@ -63,7 +63,7 @@
     async runAction(fn, okMsg) {
       try {
         const r = await fn();
-        PV.ui.toast(okMsg + (r && r.notes && r.notes.length ? ' ' + r.notes.join(' ') : '') + (r && r.logged === false ? ' (not logged)' : ''));
+        if (okMsg != null) PV.ui.toast(okMsg + (r && r.notes && r.notes.length ? ' ' + r.notes.join(' ') : '') + (r && r.logged === false ? ' (not logged)' : ''));
         return r || true;
       } catch (e) {
         if (e.isConflict) {

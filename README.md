@@ -4,7 +4,7 @@ A web viewer over NenoVision's **Stock and Booking** workbook on SharePoint. The
 
 - **Stock**: one tab per probe type (mirrors the sheets), Excel-like filter and sort on every column, search by probe ID across all types. Columns come in two groups: **Stock and Booking** (datasheet, status, booking) and **Usage** (Owner, Department, Box, Mech./Ele. or State, As of, History).
 - **Overview**: compact cards per type (in-stock count, colour bar, status numbers; "More info" shows usable/worn, stock by tip class, last booking). Below that are the statistics. "Bookings per month/week" and "In stock over time" sit side by side with their own filters: pick several types by clicking, and a period from the last month to all time. Then come consumption and reorder estimates, cost per project, bookings per person and department, and average lifetime.
-- **Phone**: "My probes" grouped by box, showing only each probe's state (no booked/in-stock chip: a probe there is simply yours). Tap a probe to update its state and add a History note. The booking list shows the mechanical values (L, f, k, Q) and the electrical ones (El. properties, tip current, tip class) for each probe. There is also search by ID. On a phone the page switches to this layout by itself.
+- **Phone**: opens on **My boxes**: one card per box with the number of probes, a colour bar and counts of good / weak / bad / not checked probes (from the state columns), plus the types inside. Tap a box to see its probes (bad ones first, no booked/in-stock chip: a probe there is simply yours); tap a probe to update its state and add a History note, or **Move to another box**. **New box** creates a box and lets you pick probes from your other boxes to move into it; a new box with no probe yet is kept on that device only, and exists in Excel as soon as the first probe is moved in (Box column). Booking can put the probe straight into a box. Every move writes the Box column, a History note ("moved to Box 4 (from Box 2)") and a Log row. The booking list shows the mechanical values (L, f, k, Q) and the electrical ones (El. properties, tip current, tip class) for each probe. There is also search by ID. On a phone the page switches to this layout by itself.
 - **Data checks**: findings in the workbook, the setup checklist and **Add missing columns**.
 - **Import** (low priority): test results pasted from Excel or uploaded, previewed before writing.
 
@@ -76,7 +76,9 @@ Static files on **GitHub Pages** (this repo: Settings → Pages → branch `main
 - **Writes** go cell by cell, never whole rows, so formula columns (Primary/Secondary technique, Akiyama position) stay intact. The viewer refuses to overwrite a formula cell. Text starting with `=`, `+`, `-` or `@` is written as text.
 - **Before every write** the row is re-read and compared with what the user saw. If someone changed it in Excel meanwhile, nothing is written and the user sees what changed.
 - Roles: only operations may change Status (Semafor rule) and the workbook structure; engineers book probes and update state and History; operations and importers import test results.
-- "My probes" = Owner is me (the last name in "PB -> EJ"), or, for booked probes without Owner, Booked for is me.
+- Condition of a probe (box cards): *bad* if any state column says bad / dead / blunt / none, *weak* for other values such as Ele. weak or spikes, *good* for new / good / ok, *not checked* when nothing is recorded.
+- A probe's box: the Box column; if empty, the Box ID for Akiyama rows, or a "Box 2" mention in Note. Plain numbers are shown as "Box 2".
+- "My boxes" / my probes = Owner is me (the last name in "PB -> EJ"), or, for booked probes without Owner, Booked for is me.
 - Edits made directly in Excel are not logged; the statistics use the Log plus "Date of booking" where the sheet has it.
 
 ## Tests

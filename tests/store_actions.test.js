@@ -68,6 +68,26 @@ const find = (st, fam, key) => st.family(fam).probes.find((x) => x.key === key);
   assert(h.startsWith(PV.todayISO() + ' EJ: Mech. new → bad; Ele. new → weak; crashed on sample S12 | '), h);
   console.log('updateState ok:', h);
 
+  // ---- boxes: move probes, book straight into a box ----
+  const mineEJ = st.probes.filter((x) => PV.currentOwner(PV.ptext(x, 'owner')) === 'EJ' && x.stock.model.roles.box != null);
+  const b1 = mineEJ.filter((x) => PV.boxOf(x) === 'Box 1').slice(0, 2);
+  assert(b1.length === 2, 'EJ has probes in Box 1');
+  const mv = await st.moveToBox(b1, 'box 9');
+  assert.strictEqual(mv.moved, 2); assert.strictEqual(mv.failed.length, 0);
+  for (const x of b1) {
+    const n = find(st, x.family.key, x.key);
+    assert.strictEqual(PV.ptext(n, 'box'), 'Box 9');
+    assert(PV.ptext(n, 'history').startsWith(PV.todayISO() + ' EJ: moved to Box 9 (from Box 1)'), PV.ptext(n, 'history'));
+  }
+  assert(st.logRows.slice(-4).some((e) => e.field === 'Box' && e.old === 'Box 1' && e.new === 'Box 9'));
+  await assert.rejects(() => st.moveToBox([find(st, b1[0].family.key, b1[0].key)], 'Box 9'), /Already in Box 9/);
+  const pb = st.family('NPC-W').probes.find((x) => PV.statusKey(x) === 'in stock');
+  await st.book(pb, { project: 'Training', box: 'Box 9' });
+  assert.strictEqual(PV.ptext(find(st, 'NPC-W', pb.key), 'box'), 'Box 9');
+  assert(PV.ptext(find(st, 'NPC-W', pb.key), 'history').includes('booked for Training, put in Box 9'));
+  const hs = {}; mineEJ.forEach((x) => { const h = PV.health(x); hs[h] = (hs[h] || 0) + 1; });
+  console.log('boxes ok, health of EJ probes', JSON.stringify(hs));
+
   // ---- Akiyama probe row with position ----
   const ak = st.family('Akiyama').probes.find((x) => PV.statusKey(x) === 'in stock' && x.key.includes('#'));
   if (ak) { const k = ak.key; await st.book(ak, { project: 'Training' }); assert.strictEqual(PV.ptext(find(st, 'Akiyama', k), 'state'), 'new'); console.log('akiyama booking ok', k); }

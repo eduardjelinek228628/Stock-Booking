@@ -221,6 +221,36 @@
     return STATE_ROLES.filter((r) => m.roles[r] != null).map((r) => ({ role: r, label: m.labels[m.roles[r]], value: PV.ptext(p, r) }));
   };
 
+  /** Box names: "box 2" / "2" → "Box 2"; anything else as typed. */
+  PV.normBox = function (v) {
+    const b = PV.clean(v);
+    if (/^box\b/i.test(b)) return b.replace(/^box\s*/i, 'Box ');
+    if (/^\d+$/.test(b)) return 'Box ' + b;
+    return b;
+  };
+  /** Storage box of a probe: the Box column, else Box ID for box-level types (Akiyama), else a "Box 2" / "SA1165" mention in Note. */
+  PV.boxOf = function (p) {
+    const b = PV.ptext(p, 'box');
+    if (PV.clean(b)) return PV.normBox(b);
+    if (p.family.boxLevel) return p.id;
+    const m = PV.ptext(p, 'note').match(/\b(box\s*\d+|SA\d{4})\b/i);
+    return m ? PV.normBox(m[1]) : '';
+  };
+  const BAD_STATES = new Set(['bad', 'dead', 'blunt', 'broken', 'none', 'not ok']);
+  /** Condition from the state columns: 'bad' (any bad value), 'weak' (e.g. Ele. weak, spikes), 'good', or 'unknown' (nothing recorded). */
+  PV.health = function (p) {
+    const usable = (window.PV_CONFIG.usableStates || []).concat(['good']);
+    let known = false, weak = false;
+    for (const f of PV.stateFields(p)) {
+      const k = PV.key(f.value);
+      if (!k || k === 'unknown' || k === '?') continue;
+      known = true;
+      if (BAD_STATES.has(k)) return 'bad';
+      if (!usable.includes(k)) weak = true;
+    }
+    return weak ? 'weak' : known ? 'good' : 'unknown';
+  };
+
   PV.normDept = function (v) {
     const s = PV.clean(v);
     if (!s) return '';

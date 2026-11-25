@@ -52,25 +52,56 @@ async def main():
         await page.click('[data-pick="period"] button[data-v="all"]'); await page.wait_for_selector('#chStock')
         await page.wait_for_timeout(300); await page.screenshot(path=f'{OUT}/3_overview.png', full_page=True)
         await page.click('[data-pick="types"] button[data-v=""]')
-        # --- phone ---
-        await page.click('.topbar [data-tab="phone"]'); await page.wait_for_selector('.phone-frame .pitem')
-        mine_status = await page.locator('.phone-frame .phone > .phone-body .pitem .chip[class*="st-"]').count()
-        print('my probes:', await page.locator('.phone-frame .phone > .phone-body .pitem').count(), 'status chips in list:', mine_status); assert mine_status == 0
-        print('groups:', await page.locator('.phone-frame .phone > .phone-body .pbox-h span:first-child').all_inner_texts())
-        await page.screenshot(path=f'{OUT}/4_phone_mine.png')
+        # --- phone: box overview -> box -> probe ---
+        await page.click('.topbar [data-tab="phone"]'); await page.wait_for_selector('.phone-frame .boxcard')
+        assert await page.locator('.phone-frame .phone > .phone-body .pitem').count() == 0, 'overview shows boxes only'
+        cards = await page.locator('.phone-frame .boxcard .bc-name').all_inner_texts(); print('boxes:', cards)
+        print('first box:', (await page.locator('.phone-frame .boxcard').first.inner_text()).replace('\n', ' | '))
+        await page.screenshot(path=f'{OUT}/4_phone_boxes.png')
+        await page.locator('.phone-frame .boxcard').first.click(); await page.wait_for_selector('.phone-frame .phone > .phone-body .pitem')
+        box1 = cards[0]; n1 = await page.locator('.phone-frame .phone > .phone-body .pitem').count(); print(box1, 'probes:', n1)
+        assert await page.locator('.phone-frame .phone > .phone-body .pitem .chip[class*="st-"]').count() == 0
+        await page.screenshot(path=f'{OUT}/4b_phone_box.png')
         await page.locator('.phone-frame .phone > .phone-body .pitem').first.click(); await page.wait_for_selector('.sheet [data-save]')
+        pid = (await page.locator('[data-sheet="detail"] .phone-title').inner_text()).replace('←', '').split()[0]
         await page.locator('.sheet .seg[data-role]').first.locator('button[data-v="good"]').click()
         await page.fill('.sheet [data-note]', 'checked in SEM, tip fine'); await page.click('.sheet [data-save]')
         await page.wait_for_selector('.toast'); hist = await page.locator('.sheet .history').inner_text()
         print('history:', hist.split('\n')[0]); assert 'checked in SEM, tip fine' in hist
+        # move this probe to another existing box
+        await page.click('[data-sheet="detail"] [data-move]'); await page.wait_for_selector('[data-sheet="move"]')
+        await page.screenshot(path=f'{OUT}/4c_phone_move.png')
+        target = await page.locator('[data-move-to]').first.get_attribute('data-move-to')
+        await page.locator('[data-move-to]').first.click(); await page.wait_for_selector('[data-sheet="move"]', state='detached')
+        print('moved', pid, 'to', target, '->', await page.locator('.toast').last.inner_text())
+        assert (await page.locator('[data-sheet="detail"] .boxrow b').inner_text()) == target
         await page.click('.sheet [data-back]')
+        assert await page.locator('.phone-frame .phone > .phone-body .pitem').count() == n1 - 1
+        # new box, add two probes from other boxes
+        await page.click('[data-boxback]'); await page.click('[data-newbox]'); await page.wait_for_selector('[data-sheet="newbox"]')
+        newname = await page.input_value('[data-sheet="newbox"] [data-newbox-name]'); print('suggested new box:', newname)
+        await page.click('[data-newbox-ok]'); await page.wait_for_selector('[data-sheet="add"]')
+        await page.locator('[data-pick-uid]:not([disabled])').nth(0).check(); await page.locator('[data-pick-uid]:not([disabled])').nth(1).check()
+        print('add button:', await page.inner_text('[data-add-ok]'))
+        await page.screenshot(path=f'{OUT}/4d_phone_add.png')
+        await page.click('[data-add-ok]'); await page.wait_for_selector('[data-sheet="add"]', state='detached')
+        assert await page.locator('.phone-frame .phone > .phone-body .pitem').count() == 2
+        print('new box title:', await page.locator('.phone-frame .phone > .phone-top .phone-title').inner_text())
+        await page.click('[data-boxback]')
+        assert newname in await page.locator('.phone-frame .boxcard .bc-name').all_inner_texts()
+        # empty new box can be removed again
+        await page.click('[data-newbox]'); await page.click('[data-newbox-ok]'); await page.click('[data-add-cancel]')
+        await page.wait_for_selector('[data-rmbox]'); await page.click('[data-rmbox]'); await page.wait_for_selector('.phone-frame .boxcard')
         await page.click('.phone-nav [data-ptab="book"]'); await page.select_option('[data-bookfam]', 'NPC-X')
         item = page.locator('.phone > .phone-body .pitem').first
         txt = (await item.inner_text()).replace('\n', ' | '); print('booking list item:', txt); assert 'El.' in txt and 'f ' in txt
         await page.screenshot(path=f'{OUT}/5_phone_book.png')
         await item.click(); await page.wait_for_selector('[data-confirm-book]')
-        await page.locator('.sheet .seg[data-proj] button').nth(1).click(); await page.click('[data-confirm-book]')
-        await page.wait_for_selector('.toast'); print('phone booking:', await page.locator('.toast').last.inner_text())
+        await page.locator('.sheet .seg[data-proj] button').nth(1).click()
+        await page.click(f'.sheet .seg[data-bookbox] button[data-v="{newname}"]'); await page.click('[data-confirm-book]')
+        await page.wait_for_selector('[data-sheet="book"]', state='detached'); print('phone booking:', await page.locator('.toast').last.inner_text())
+        assert newname in await page.locator('.phone-frame .phone > .phone-top .phone-title').inner_text()
+        assert await page.locator('.phone-frame .phone > .phone-body .pitem').count() == 3
         # --- data checks: demo without new columns, then setup as operations ---
         await page.click('.topbar [data-tab="checks"]'); await page.wait_for_selector('.check')
         await page.click('#demoLegacy'); await page.wait_for_selector('#setup')
@@ -83,7 +114,7 @@ async def main():
         # --- real phone width ---
         m = await b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
         mp = await m.new_page(); mp.on('pageerror', lambda e: errors.append('MOBILE ' + str(e)))
-        await mp.goto(APP); await mp.wait_for_selector('.phone.full .pitem'); await mp.screenshot(path=f'{OUT}/8_mobile.png')
+        await mp.goto(APP); await mp.wait_for_selector('.phone.full .boxcard'); await mp.screenshot(path=f'{OUT}/8_mobile.png')
         # --- dark OS setting still shows the light design ---
         d = await b.new_context(viewport={'width': 1440, 'height': 900}, color_scheme='dark')
         dp = await d.new_page(); await dp.goto(APP + '#overview'); await dp.wait_for_selector('#chBookings')

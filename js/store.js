@@ -214,8 +214,9 @@
       const project = PV.clean(opts.project);
       const today = PV.todayISO();
       const m = probe.stock.model;
-      const ch = { status: 'booked', bookedFor: this.personValue(), bookingDate: today, project: project || undefined, owner: this.personValue(), department: this.user.department || undefined, asOf: today,
-        history: this.prependHistory(PV.ptext(probe, 'history'), 'booked' + (project ? ' for ' + project : '')) };
+      const box = PV.clean(opts.box) ? PV.normBox(opts.box) : undefined;
+      const ch = { status: 'booked', bookedFor: this.personValue(), bookingDate: today, project: project || undefined, owner: this.personValue(), department: this.user.department || undefined, asOf: today, box,
+        history: this.prependHistory(PV.ptext(probe, 'history'), 'booked' + (project ? ' for ' + project : '') + (box ? ', put in ' + box : '')) };
       for (const r of ['mech', 'ele', 'mag', 'state']) if (m.roles[r] != null && !PV.ptext(probe, r)) ch[r] = 'new';
       const report = { logged: !!this.log, notes: [] };
       const note = this.missingNote(probe, ['project', 'owner', 'history']);
@@ -255,6 +256,33 @@
         await this.appendLog(await this.applyRow(probe, ch, session), session);
         return { ok: true };
       }).finally(() => this.reload([probe.family.key]).catch(() => {}));
+    }
+
+    /** Move probes into a storage box (Box column + a History note). Probes already in that box are skipped. */
+    async moveToBox(probes, box) {
+      if (!this.can('state')) throw new Error('Writing is disabled.');
+      const target = PV.normBox(box);
+      if (!target) throw new Error('Choose a box.');
+      for (const p of probes) {
+        const m = p.stock.model;
+        if (m.roles.box == null) throw new Error('No Box column in ' + m.sheetName + ' yet – Data checks → "Add missing columns".');
+        this.assertWritable(p.stock);
+      }
+      const todo = probes.filter((p) => PV.key(PV.boxOf(p)) !== PV.key(target));
+      if (!todo.length) throw new Error('Already in ' + target + '.');
+      const res = { moved: 0, failed: [] };
+      return this.tx(async (session) => {
+        const entries = [];
+        for (const p of todo) {
+          const from = PV.boxOf(p);
+          try {
+            entries.push(...await this.applyRow(p, { box: target, history: this.prependHistory(PV.ptext(p, 'history'), 'moved to ' + target + (from ? ' (from ' + from + ')' : '')) }, session));
+            res.moved++;
+          } catch (e) { res.failed.push({ id: PV.logId(p), error: e.message }); }
+        }
+        try { await this.appendLog(entries, session); } catch (e) { res.failed.push({ id: '(log)', error: e.message }); }
+        return res;
+      }).finally(() => this.reload([...new Set(todo.map((p) => p.family.key))]).catch(() => {}));
     }
 
     /** Test-results import: items = [{probe, cells: [{col, value}]}] for one family's sheet. */

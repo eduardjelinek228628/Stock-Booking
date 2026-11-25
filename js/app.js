@@ -19,7 +19,7 @@
       stock: { family: null, filters: {}, sort: {}, showLife: true, q: '' },
       overview: { types: [], period: 12, open: {} },
       import: { mapping: {}, overwrite: false },
-      phone: { tab: 'mine', filter: 'all', q: '', open: null, confirm: null },
+      phone: { tab: 'mine', box: null, q: '', open: null, confirm: null, move: null, add: null, newBox: false },
     },
 
     mode() {
@@ -107,7 +107,7 @@
       const ps = document.getElementById('persona');
       if (ps) ps.onchange = () => { PV.storage.set('probeViewer.demo.persona', +ps.value); store.user = Object.assign({}, DEMO_PERSONAS[+ps.value]); this.render(); };
       const rd = document.getElementById('resetDemo');
-      if (rd) rd.onclick = () => PV.ui.modal('Reset demo data?', '<p>All bookings and changes made in the demo are discarded and the sample data is rebuilt.</p>', [{ label: 'Cancel' }, { label: 'Reset', primary: true, onClick: async () => { store.source.reset(); this.state.phone.open = null; await this.refresh(); } }]);
+      if (rd) rd.onclick = () => PV.ui.modal('Reset demo data?', '<p>All bookings and changes made in the demo are discarded and the sample data is rebuilt.</p>', [{ label: 'Cancel' }, { label: 'Reset', primary: true, onClick: async () => { store.source.reset(); Object.assign(this.state.phone, { open: null, box: null, move: null, add: null, newBox: false }); await this.refresh(); } }]);
       const so = document.getElementById('signout'); if (so) so.onclick = () => this.auth.signOut();
     },
   });
